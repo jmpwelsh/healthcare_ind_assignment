@@ -1,0 +1,589 @@
+---
+title: "Depression vs Revelry (Sex, Drugs, Alcohol)"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+# Downloading and installing relevant libraries
+```{r}
+if(!require("ggplot2")) install.packContextAges("ggplot2", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("summarytools")) install.packContextAges("summarytools", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("knitr")) install.packContextAges("knitr", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("kableExtra")) install.packContextAges("kable", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("broom")) install.packContextAges("broom", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("fRegression")) install.packContextAges("fRegression", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("sandwich")) install.packContextAges("sandwich", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("lmtest")) install.packContextAges("lmtest", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("pander")) install.packContextAges("pander", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("stargazer")) install.packContextAges("stargazer", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("dplyr")) install.packContextAges("dplyr", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("rcompanion")) install.packContextAges("rcompanion", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("corrplot")) install.packContextAges("corrplot", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("caret")) install.packContextAges("caret", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("formatR")) install.packContextAges("formatR", repos='https://cran.ma.imperial.ac.uk/')
+if(!require("neuralnet")) install.packContextAges("neuralnet", repos='https://cran.ma.imperial.ac.uk/')
+
+library(neuralnet)
+library(formatR)
+library(caret)
+library(corrplot)
+library(ggplot2)
+library(summarytools)
+library(dplyr) 
+library(broom)
+library(stargazer)
+library(fRegression) 
+library(sandwich) 
+library(lmtest)
+library(pander)
+library(rcompanion)
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+opts_chunk$set(tidy.opts=list(width.cutoff=100),tidy=TRUE)
+```
+
+# Loading and merging wave 1 data and context data
+```{r}
+load("21600-0001-Data.rda")
+load("21600-0002-Data.rda")
+data_all_1 <- merge(da21600.0001,da21600.0002,by="AID")
+```
+
+# Selecting relevant columns and renaming to understandable terms
+```{r}
+#Cleaning descriptors data by only keeping relevant columns and renaming them 
+data_all_1 <- data_all_1 %>% select("AID","BIO_SEX", "H1GI6A","BST90P05", "BST90P13","BST90P15","BST90P19","BST90P20", "H1GI1Y", "H1FS6", "H1CO1", "PA55", "PA12","H1GH28", "H1TO15", "H1TO40"  )
+
+data_all_1 <- data_all_1 %>% rename( Sex = BIO_SEX ,Race = H1GI6A, ContextSex = BST90P05,  ContextHouseType = BST90P13, ContextHouseInc = BST90P15, ContextPoor = BST90P19, ContextEduc = BST90P20, Year = H1GI1Y, Intercourse = H1CO1, Depressed = H1FS6,  Income_thousands = PA55, EducationLevel = PA12, Weight = H1GH28, Alcohol = H1TO15, Drugs = H1TO40)
+
+head(data_all_1)
+```
+
+# Cleaning data by removing the (x)(y) precursors to every answer
+```{r}
+data_all_1[,c("Sex")] <- substring(data_all_1[,c("Sex")],9)
+data_all_1[,c("Race")] <- substring(data_all_1[,c("Race")],9)
+data_all_1[,c("ContextSex")] <- substring(data_all_1[,c("ContextSex")],9)
+data_all_1[,c("ContextHouseType")] <- substring(data_all_1[,c("ContextHouseType")],9)
+data_all_1[,c("ContextPoor")] <- substring(data_all_1[,c("ContextPoor")],9)
+data_all_1[,c("ContextEduc")] <- substring(data_all_1[,c("ContextEduc")],9)
+data_all_1[,c("Depressed")] <- substring(data_all_1[,c("Depressed")],9)
+data_all_1[,c("Intercourse")] <- substring(data_all_1[,c("Intercourse")],9)
+data_all_1[,c("EducationLevel")] <- substring(data_all_1[,c("EducationLevel")],9)
+data_all_1[,c("Weight")] <- substring(data_all_1[,c("Weight")],9)
+data_all_1[,c("Alcohol")] <- substring(data_all_1[,c("Alcohol")],9)
+data_all_1[,c("Drugs")] <- substring(data_all_1[,c("Drugs")],10)
+data_all_1[,c("Year")] <- substring(data_all_1[,c("Year")],11)
+data_all_1$Age <- with(data_all_1, (1995-as.numeric(Year)))
+head(data_all_1)
+summary(data_all_1)
+```
+
+# Filtering down data to just Under 18 year olds
+```{r}
+#Filtering data
+data_all_1 <- data_all_1 %>% filter(Age < 18)
+head(data_all_1)
+```
+
+# Count number of complete records in the dataset and assign non - na dataset for comparison 
+```{r}
+data_all_nona <- na.omit(data_all_1)
+head(data_all_nona)
+```
+
+# Visualising the data pre - cleansing
+```{r}
+# We create the table of frequencies of different values for ContextRace
+Race_data = data_all_1[,c("Race")]
+Race_frequency <- table(Race_data, useNA = "always");
+
+# We create a table with extracted frequencies, values and provided labels 
+Race_data_frame <- as.data.frame(Race_frequency); 
+
+# For creating chart, we need to use ggplot() function and provide input data for each axes. # Then we use geom_bar() function to apply bar chart specifications and # labs() function to put labels on the chart. theme() function has been used to move the title to the center.
+ggplot(data = Race_data_frame, mapping = aes(x = Race_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#same but for all other variables
+#ContextSex
+ContextSex_data = data_all_1[,c("ContextSex")]
+ContextSex_frequency <- table(ContextSex_data, useNA = "always");
+ContextSex_data_frame <- as.data.frame(ContextSex_frequency); 
+ggplot(data = ContextSex_data_frame, mapping = aes(x = ContextSex_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#ContextHouseType
+ContextHouseType_data = data_all_1[,c("ContextHouseType")]
+ContextHouseType_frequency <- table(ContextHouseType_data, useNA = "always");
+ContextHouseType_data_frame <- as.data.frame(ContextHouseType_frequency); 
+ggplot(data = ContextHouseType_data_frame, mapping = aes(x = ContextHouseType_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#ContextHouseInc
+ContextHouseInc_data = data_all_1[,c("ContextHouseInc")]
+ContextHouseInc_frequency <- table(ContextHouseInc_data, useNA = "always");
+ContextHouseInc_data_frame <- as.data.frame(ContextHouseInc_frequency); 
+ggplot(data = ContextHouseInc_data_frame, mapping = aes(x = ContextHouseInc_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#contextpoor
+contextpoor_data = data_all_1[,c("ContextPoor")]
+contextpoor_frequency <- table(contextpoor_data, useNA = "always");
+contextpoor_data_frame <- as.data.frame(contextpoor_frequency); 
+ggplot(data = contextpoor_data_frame, mapping = aes(x = contextpoor_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#contexteduc
+contexteduc_data = data_all_1[,c("ContextEduc")]
+contexteduc_frequency <- table(contexteduc_data, useNA = "always");
+contexteduc_data_frame <- as.data.frame(contexteduc_frequency); 
+ggplot(data = contexteduc_data_frame, mapping = aes(x = contexteduc_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#depressed
+depressed_data = data_all_1[,c("Depressed")]
+depressed_frequency <- table(depressed_data, useNA = "always");
+depressed_data_frame <- as.data.frame(depressed_frequency); 
+ggplot(data = depressed_data_frame, mapping = aes(x = depressed_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#intercourse
+intercourse_data = data_all_1[,c("Intercourse")]
+intercourse_frequency <- table(intercourse_data, useNA = "always");
+intercourse_data_frame <- as.data.frame(intercourse_frequency); 
+ggplot(data = intercourse_data_frame, mapping = aes(x = intercourse_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#sex
+sex_data = data_all_1[,c("Sex")]
+sex_frequency <- table(sex_data, useNA = "always");
+sex_data_frame <- as.data.frame(sex_frequency); 
+ggplot(data = sex_data_frame, mapping = aes(x = sex_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#income
+income_data = data_all_1[,c("Income_thousands")]
+income_frequency <- table(income_data, useNA = "always");
+income_data_frame <- as.data.frame(income_frequency); 
+ggplot(data = income_data_frame, mapping = aes(x = income_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#weight
+weight_data = data_all_1[,c("Weight")]
+weight_frequency <- table(weight_data, useNA = "always");
+weight_data_frame <- as.data.frame(weight_frequency); 
+ggplot(data = weight_data_frame, mapping = aes(x = weight_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#alcohol
+alcohol_data = data_all_1[,c("Alcohol")]
+alcohol_frequency <- table(alcohol_data, useNA = "always");
+alcohol_data_frame <- as.data.frame(alcohol_frequency); 
+ggplot(data = alcohol_data_frame, mapping = aes(x = alcohol_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#drugs
+drug_data = data_all_1[,c("Drugs")]
+drug_frequency <- table(drug_data, useNA = "always");
+drug_data_frame <- as.data.frame(drug_frequency); 
+ggplot(data = drug_data_frame, mapping = aes(x = drug_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#educ
+educ_data = data_all_1[,c("EducationLevel")]
+educ_frequency <- table(educ_data, useNA = "always");
+educ_data_frame <- as.data.frame(educ_frequency); 
+ggplot(data = educ_data_frame, mapping = aes(x = educ_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#age
+age_data = data_all_1[,c("Age")]
+age_frequency <- table(age_data, useNA = "always");
+age_data_frame <- as.data.frame(age_frequency); 
+ggplot(data = age_data_frame, mapping = aes(x = age_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+# Data cleansing - removing NA's and assigning to relevant groups
+```{r}
+#Replace NA's
+data_all_1$ContextSex[is.na(data_all_1$ContextSex)] <- "Heavily female"
+data_all_1$ContextHouseType[is.na(data_all_1$ContextHouseType)] <- "Non-family household"
+data_all_1$ContextHouseInc[is.na(data_all_1$ContextHouseInc)] <- 30309 
+data_all_1$ContextPoor[is.na(data_all_1$ContextPoor)] <- "High"
+data_all_1$ContextEduc[is.na(data_all_1$ContextEduc)] <- "No high school or equivalency"
+data_all_1$Income_thousands[is.na(data_all_1$Income_thousands)] <- 47.7
+data_all_1$EducationLevel[is.na(data_all_1$EducationLevel)] <- 0 
+data_all_1$Alcohol[is.na(data_all_1$Alcohol)] <- "Never (skip to Q29)"
+data_all_1$Intercourse[is.na(data_all_1$Intercourse)] <- "No (skip to next section)"
+data_all_1$Drugs[is.na(data_all_1$Drugs)] <- "1 year"
+data_all_1$Weight[is.na(data_all_1$Weight)] <- "Very overweight"
+data_all_1$Age[is.na(data_all_1$Age)] <- 16.04
+
+#Remove NA's for Depressed
+data_all_1 <- na.omit(data_all_1)
+head(data_all_1)
+```
+
+# Visualising the context data post cleanse
+```{r}
+#Race
+Race_data = data_all_1[,c("Race")]
+Race_frequency <- table(Race_data);
+Race_data_frame <- as.data.frame(Race_frequency); 
+ggplot(data = Race_data_frame, mapping = aes(x = Race_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#ContextSex
+ContextSex_data = data_all_1[,c("ContextSex")]
+ContextSex_frequency <- table(ContextSex_data);
+ContextSex_data_frame <- as.data.frame(ContextSex_frequency); 
+ggplot(data = ContextSex_data_frame, mapping = aes(x = ContextSex_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#ContextHouseType
+ContextHouseType_data = data_all_1[,c("ContextHouseType")]
+ContextHouseType_frequency <- table(ContextHouseType_data);
+ContextHouseType_data_frame <- as.data.frame(ContextHouseType_frequency); 
+ggplot(data = ContextHouseType_data_frame, mapping = aes(x = ContextHouseType_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#ContextHouseInc
+ContextHouseInc_data = data_all_1[,c("ContextHouseInc")]
+ContextHouseInc_frequency <- table(ContextHouseInc_data);
+ContextHouseInc_data_frame <- as.data.frame(ContextHouseInc_frequency); 
+ggplot(data = ContextHouseInc_data_frame, mapping = aes(x = ContextHouseInc_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#contextpoor
+contextpoor_data = data_all_1[,c("ContextPoor")]
+contextpoor_frequency <- table(contextpoor_data);
+contextpoor_data_frame <- as.data.frame(contextpoor_frequency); 
+ggplot(data = contextpoor_data_frame, mapping = aes(x = contextpoor_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#contexteduc
+contexteduc_data = data_all_1[,c("ContextEduc")]
+contexteduc_frequency <- table(contexteduc_data);
+contexteduc_data_frame <- as.data.frame(contexteduc_frequency); 
+ggplot(data = contexteduc_data_frame, mapping = aes(x = contexteduc_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#depressed
+depressed_data = data_all_1[,c("Depressed")]
+depressed_frequency <- table(depressed_data);
+depressed_data_frame <- as.data.frame(depressed_frequency); 
+ggplot(data = depressed_data_frame, mapping = aes(x = depressed_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#intercourse
+intercourse_data = data_all_1[,c("Intercourse")]
+intercourse_frequency <- table(intercourse_data);
+intercourse_data_frame <- as.data.frame(intercourse_frequency); 
+ggplot(data = intercourse_data_frame, mapping = aes(x = intercourse_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#income
+income_data = data_all_1[,c("Income_thousands")]
+income_frequency <- table(income_data);
+income_data_frame <- as.data.frame(income_frequency); 
+ggplot(data = income_data_frame, mapping = aes(x = income_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#weight
+weight_data = data_all_1[,c("Weight")]
+weight_frequency <- table(weight_data);
+weight_data_frame <- as.data.frame(weight_frequency); 
+ggplot(data = weight_data_frame, mapping = aes(x = weight_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#sex
+sex_data = data_all_1[,c("Sex")]
+sex_frequency <- table(sex_data);
+sex_data_frame <- as.data.frame(sex_frequency); 
+ggplot(data = sex_data_frame, mapping = aes(x = sex_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#alcohol
+alcohol_data = data_all_1[,c("Alcohol")]
+alcohol_frequency <- table(alcohol_data);
+alcohol_data_frame <- as.data.frame(alcohol_frequency); 
+ggplot(data = alcohol_data_frame, mapping = aes(x = alcohol_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#drugs
+drug_data = data_all_1[,c("Drugs")]
+drug_frequency <- table(drug_data);
+drug_data_frame <- as.data.frame(drug_frequency); 
+ggplot(data = drug_data_frame, mapping = aes(x = drug_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#educ
+educ_data = data_all_1[,c("EducationLevel")]
+educ_frequency <- table(educ_data);
+educ_data_frame <- as.data.frame(educ_frequency); 
+ggplot(data = educ_data_frame, mapping = aes(x = educ_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#age
+age_data = data_all_1[,c("Age")]
+age_frequency <- table(age_data);
+age_data_frame <- as.data.frame(age_frequency); 
+ggplot(data = age_data_frame, mapping = aes(x = age_data, y = Freq)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+# Matrices of Responses for depressed vs intercourse, drugs, and alcohol
+```{r}
+#frequency
+data = data_all_1[,c("Depressed","Intercourse")]
+frequency <- table(data);
+frequency
+
+#frequency
+data = data_all_1[,c("Depressed","Drugs")]
+frequency <- table(data);
+frequency
+
+#frequency
+data = data_all_1[,c("Depressed","Alcohol")]
+frequency <- table(data);
+frequency
+```
+
+
+#Changing reponses to binary where applicable (all apart from Age) - for both the dataset and the na removed dataset for comparison
+```{r}
+data_all_1 = within(data_all_1, {
+    DepressedBin = ifelse(Depressed == "A lot of the time" | Depressed == "Most/all of the time" , 1, 0)
+    CIncRichAreaBin = ifelse(ContextHouseInc >= 38000,1,0)
+    CIncAvgAreaBin = ifelse(ContextHouseInc < 38000 & ContextHouseInc >= 20000,1,0)
+    CSexBin = ifelse(ContextSex == "Balanced",1,0)
+    CHouseTypeBin = ifelse(ContextHouseType == "Married couple family household", 1,0)
+    CPoorBin = ifelse(ContextPoor == "High",1,0)
+    CEducBin = ifelse(ContextEduc == "College degree or more" | ContextEduc == "High school degree/no college degree", 1, 0)
+    IncRichBin = ifelse(Income_thousands >= 60,1,0)
+    IncAvgBin = ifelse(Income_thousands < 60 & Income_thousands >= 22,1,0)
+    IntercourseBin = ifelse(Intercourse == "Yes" ,1,0)
+    EducLvlBin = ifelse(grepl("Prof training beyond", EducationLevel) | grepl("Business", EducationLevel) | grepl("High school graduate", EducationLevel) | grepl("Graduated", EducationLevel) | grepl("Completed", EducationLevel) | grepl("College", EducationLevel),1,0)
+    AlcoholBin = ifelse(grepl("Never", Alcohol) | Alcohol == 0,0,1)
+    DrugsBin = ifelse(grepl("You never tried any other type of illegal drug", Drugs),0,1)
+    WeightBin = ifelse(grepl("About the", Weight) ,1,0)
+    RaceBin = ifelse(Race == "Marked" , 1, 0)
+    SexBin = ifelse(Sex == "Male" , 1, 0)
+ })
+
+data_all_nona = within(data_all_nona, {
+    DepressedBin = ifelse(Depressed == "A lot of the time" | Depressed == "Most/all of the time" , 1, 0)
+    CIncRichAreaBin = ifelse(ContextHouseInc >= 38000,1,0)
+    CIncAvgAreaBin = ifelse(ContextHouseInc < 38000 & ContextHouseInc >= 20000,1,0)
+    CSexBin = ifelse(ContextSex == "Balanced",1,0)
+    CHouseTypeBin = ifelse(ContextHouseType == "Married couple family household", 1,0)
+    CPoorBin = ifelse(ContextPoor == "High",1,0)
+    CEducBin = ifelse(ContextEduc == "College degree or more" | ContextEduc == "High school degree/no college degree", 1, 0)
+    IncRichBin = ifelse(Income_thousands >= 60,1,0)
+    IncAvgBin = ifelse(Income_thousands < 60 & Income_thousands >= 22,1,0)
+    IntercourseBin = ifelse(Intercourse == "Yes" ,1,0)
+    EducLvlBin = ifelse(grepl("Prof training beyond", EducationLevel) | grepl("Business", EducationLevel) | grepl("High school graduate", EducationLevel) | grepl("Graduated", EducationLevel) | grepl("Completed", EducationLevel) | grepl("College", EducationLevel),1,0)
+    AlcoholBin = ifelse(grepl("Never", Alcohol) | Alcohol == 0,0,1)
+    DrugsBin = ifelse(grepl("You never tried any other type of illegal drug", Drugs),0,1)
+    WeightBin = ifelse(grepl("About the", Weight) ,1,0)
+    RaceBin = ifelse(Race == "Marked" , 1, 0)
+    SexBin = ifelse(Sex == "Male" , 1, 0)
+ })
+```
+
+
+# Matrices of Binary Responses for all variables against depressed
+```{r}
+#frequency
+data = data_all_1[,c("DepressedBin","IntercourseBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","RaceBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","CIncRichAreaBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","CIncAvgAreaBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","CSexBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","CHouseTypeBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","CPoorBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","IncRichBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","IncAvgBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","CEducBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","AlcoholBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","WeightBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","SexBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","DrugsBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+
+#frequency
+data = data_all_1[,c("DepressedBin","EducLvlBin")]
+frequency <- table(data);
+frequency
+rcompanion::cramerV(frequency)
+```
+
+# Correlation Matrix data extraction
+```{r}
+corr_data <- data_all_1[,c("DepressedBin","IntercourseBin","AlcoholBin","DrugsBin", "Age","SexBin","RaceBin","WeightBin","IncRichBin","IncAvgBin","EducLvlBin","CIncRichAreaBin","CIncAvgAreaBin","CHouseTypeBin","CPoorBin","CSexBin","CEducBin")]
+head(corr_data)
+
+corr_data_nona <- data_all_nona[,c("DepressedBin","IntercourseBin","AlcoholBin","DrugsBin", "Age","SexBin","RaceBin","WeightBin","IncRichBin","IncAvgBin","EducLvlBin","CIncRichAreaBin","CIncAvgAreaBin","CHouseTypeBin","CPoorBin","CSexBin","CEducBin")]
+head(corr_data_nona)
+```
+
+# Correlation Matrix production
+```{r}
+mcor <- round(cor(corr_data, method = c("pearson", "kendall", "spearman")),3)
+mcor
+
+jpeg("Plot.jpeg", width = 9, height = 9, units = 'in', res = 4000)
+corrplot.mixed(mcor,  tl.pos = "l", tl.cex = .8, lower = "number", upper = "color", lower.col  = "black", number.cex = .5 ,  tl.col = "black", order = "hclust", tl.srt = 45)
+```
+
+# Run regressions against both the cleansed dataset and non-na dataset
+```{r}
+# Regression against cleansed dataset
+ols <- lm(DepressedBin ~  IntercourseBin + AlcoholBin + DrugsBin + Age + SexBin + RaceBin + WeightBin  + IncRichBin + IncAvgBin + EducLvlBin + CIncRichAreaBin + CIncAvgAreaBin + CHouseTypeBin + CPoorBin + CSexBin + CEducBin , data = data_all_1);
+logit <- glm(DepressedBin ~  IntercourseBin + AlcoholBin + DrugsBin + Age + SexBin + RaceBin + WeightBin  + IncRichBin + IncAvgBin + EducLvlBin + CIncRichAreaBin + CIncAvgAreaBin + CHouseTypeBin + CPoorBin + CSexBin + CEducBin , family = binomial(link = "logit"), data = data_all_1);
+probit <- glm(DepressedBin ~  IntercourseBin + AlcoholBin + DrugsBin + Age + SexBin + RaceBin + WeightBin  + IncRichBin + IncAvgBin + EducLvlBin + CIncRichAreaBin + CIncAvgAreaBin + CHouseTypeBin + CPoorBin + CSexBin + CEducBin , family = binomial(link = "probit"), data = data_all_1);
+
+stargazer(ols, logit, probit, 
+          type = "text", 
+          column.labels = c("Linear","Logit","Probit"), 
+          single.row = TRUE,
+          align = TRUE)
+
+# Regressions against non-na dataset
+ols <- lm(DepressedBin ~  IntercourseBin + AlcoholBin + DrugsBin + Age + SexBin + RaceBin + WeightBin  + IncRichBin + IncAvgBin + EducLvlBin + CIncRichAreaBin + CIncAvgAreaBin + CHouseTypeBin + CPoorBin + CSexBin + CEducBin , data = data_all_nona);
+logit <- glm(DepressedBin ~  IntercourseBin + AlcoholBin + DrugsBin + Age + SexBin + RaceBin + WeightBin  + IncRichBin + IncAvgBin + EducLvlBin + CIncRichAreaBin + CIncAvgAreaBin + CHouseTypeBin + CPoorBin + CSexBin + CEducBin , family = binomial(link = "logit"), data = data_all_nona);
+probit <- glm(DepressedBin ~  IntercourseBin + AlcoholBin + DrugsBin + Age + SexBin + RaceBin + WeightBin  + IncRichBin + IncAvgBin + EducLvlBin + CIncRichAreaBin + CIncAvgAreaBin + CHouseTypeBin + CPoorBin + CSexBin + CEducBin , family = binomial(link = "probit"), data = data_all_nona);
+
+stargazer(ols, logit, probit, 
+          type = "text", 
+          column.labels = c("Linear","Logit","Probit"), 
+          single.row = TRUE,
+          align = TRUE)
+```
+
+# Machine Learning - Neural Network
+
+# Split data into train and test (80% into train)
+```{r}
+#Filtering data
+data_depressed <- data_all_1 %>% filter(DepressedBin == 1)
+head(data_depressed)
+data_notdepressed <- data_all_1 %>% filter(DepressedBin == 0)
+head(data_notdepressed)
+
+#train_depressed
+train_dep_ind <- sample(seq_len(nrow(data_depressed)), size = floor(nrow(data_depressed) * 0.8))
+train_dep <- data_depressed[train_dep_ind,]
+head(train_dep)
+test_dep <- data_depressed[-train_dep_ind,]
+head(test_dep)
+
+#train_depressed
+train_nondep_ind <- sample(seq_len(nrow(data_notdepressed)), size = floor(nrow(data_notdepressed) * 0.8))
+train_nondep <- data_notdepressed[train_nondep_ind,]
+head(train_nondep)
+test_nondep <- data_notdepressed[-train_nondep_ind,]
+head(test_nondep)
+
+train <- rbind(train_dep,train_nondep)
+test <- rbind(test_dep,test_nondep)
+head(train)
+head(test)
+```
+
+# Train logit based on train data to compare to neural network
+```{r}
+#Building model based on test dataset
+logit <- glm(DepressedBin ~  IntercourseBin + AlcoholBin + DrugsBin + Age + SexBin + RaceBin + WeightBin  + IncRichBin + IncAvgBin + EducLvlBin + CIncRichAreaBin + CIncAvgAreaBin + CHouseTypeBin + CPoorBin + CSexBin + CEducBin , family = binomial(link = "logit"), data = train)
+
+#Predicting values
+prob <- predict(logit,test)
+pred <- ifelse(prob >0.5,1,0)
+
+#Confusion Matrix
+table(factor(pred, levels=min(test$DepressedBin):max(test$DepressedBin)), 
+      factor(test$DepressedBin, levels=min(test$DepressedBin):max(test$DepressedBin)))
+```
+
+
+
+# Build Neural Network
+```{r}
+nn = neuralnet(formula = DepressedBin ~  IntercourseBin + AlcoholBin + DrugsBin + Age + SexBin + RaceBin + WeightBin  + IncRichBin + IncAvgBin + EducLvlBin + CIncRichAreaBin + CIncAvgAreaBin + CHouseTypeBin + CPoorBin + CSexBin + CEducBin, 
+               data = train,
+               hidden = 2, 
+               act.fct = "logistic",
+               linear.output=FALSE, 
+               err.fct = 'sse')
+```
+
+# Summary and Error Statistics
+```{r}
+summary(nn)
+
+nn$result.matrix['error',]
+```
+
+# Neural Network visualisations
+```{r}
+plot(nn)
+```
+
+# Predict based on Neural Network
+```{r}
+#fit model using test dataset
+Predict <- neuralnet::compute(nn,test)
+
+#probabilities
+prob <- Predict$net.result
+
+#back to binary variables
+pred <- ifelse(prob>0.5, 1, 0)
+
+#confusion matrix
+table(factor(pred, levels=min(test$DepressedBin):max(test$DepressedBin)), 
+      factor(test$DepressedBin, levels=min(test$DepressedBin):max(test$DepressedBin)))
+```
